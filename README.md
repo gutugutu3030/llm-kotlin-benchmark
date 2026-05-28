@@ -31,6 +31,7 @@
 --models llama.cpp,github-copilot
 --llama-model llama.cpp/Qwen3.6-27B-IQ4_XS.gguf
 --copilot-model github-copilot/gpt-5.3-codex
+--opencode-timeout-sec 300
 --output-dir results
 --refresh-dataset
 ```
@@ -54,6 +55,36 @@
 
 ```bash
 ./gradlew :app:run --args="--help"
+```
+
+## モデル疎通チェック（軽量）
+
+`Hello` などの短いプロンプトで、各モデルが応答できるかだけを確認するタスクです。  
+HumanEval の取得・コンパイル・実行は行いません。
+
+```bash
+# デフォルト（両モデル）
+./gradlew :app:pingModels
+
+# モデル指定（片方だけ）
+./gradlew :app:pingModels -Pmodels=github-copilot
+
+# プロンプト指定
+./gradlew :app:pingModels -PpingMessage="Hello"
+
+# timeout 指定（秒）
+./gradlew :app:pingModels -PopencodeTimeoutSec=120
+
+# opencode バイナリ指定
+./gradlew :app:pingModels -PopencodeBin=/path/to/opencode
+```
+
+`pingModels` のデフォルト timeout は 60 秒です。
+
+CLI から直接実行する場合:
+
+```bash
+./gradlew :app:run --args="--ping-models --models github-copilot --ping-message Hello"
 ```
 
 ## 出力

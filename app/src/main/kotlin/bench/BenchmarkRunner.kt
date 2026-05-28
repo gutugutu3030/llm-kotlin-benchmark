@@ -13,7 +13,6 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Comparator
-import kotlin.concurrent.thread
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -69,12 +68,6 @@ data class BenchmarkArtifacts(
     val summaryByModel: List<ModelSummary>
 )
 
-private data class CommandResult(
-    val exitCode: Int?,
-    val output: String,
-    val timedOut: Boolean
-)
-
 private data class ModelInvocation(
     val rawOutput: String,
     val modelDurationMs: Long,
@@ -123,6 +116,9 @@ class BenchmarkRunner(
     fun run(): BenchmarkArtifacts {
         require(config.problemCount > 0) { "--count must be > 0" }
         require(config.models.isNotEmpty()) { "At least one model is required" }
+        require(config.opencodeTimeoutSec > 0) { "--opencode-timeout-sec must be > 0" }
+        require(config.compileTimeoutSec > 0) { "--compile-timeout-sec must be > 0" }
+        require(config.executeTimeoutSec > 0) { "--execute-timeout-sec must be > 0" }
         val hasCopilot = config.models.any { it.name == "github-copilot" }
         if (hasCopilot && config.problemCount > config.copilotMaxCalls) {
             throw IllegalArgumentException(
@@ -223,8 +219,7 @@ class BenchmarkRunner(
     private fun invokeModel(model: ModelConfig, task: HumanEvalTask): ModelInvocation {
         val prompt = buildPrompt(task)
         val startedAt = Instant.now()
-        val command = listOf(config.opencodeBin,"run", "-m", model.modelId, prompt)
-        println(command)
+        val command = listOf(config.opencodeBin, "run", "-m", model.modelId, "--", prompt)
         val result = runCommand(command, Duration.ofSeconds(config.opencodeTimeoutSec), null)
         val modelMs = Duration.between(startedAt, Instant.now()).toMillis()
 
@@ -330,34 +325,6 @@ class BenchmarkRunner(
         } finally {
             deleteDirectory(workDir)
         }
-    }
-
-    private fun runCommand(command: List<String>, timeout: Duration, workingDirectory: Path?): CommandResult {
-        val processBuilder = ProcessBuilder(command)
-        if (workingDirectory != null) {
-            processBuilder.directory(workingDirectory.toFile())
-        }
-        processBuilder.redirectErrorStream(true)
-        val process = processBuilder.start()
-
-        val output = StringBuilder()
-        val readerThread = thread(start = true, name = "process-output-reader") {
-            process.inputStream.bufferedReader().useLines { lines ->
-                for (line in lines) {
-                    output.appendLine(line)
-                }
-            }
-        }
-
-        val finished = process.waitFor(timeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
-        if (!finished) {
-            process.destroyForcibly()
-            readerThread.join(1_000)
-            return CommandResult(exitCode = null, output = output.toString(), timedOut = true)
-        }
-
-        readerThread.join(1_000)
-        return CommandResult(exitCode = process.exitValue(), output = output.toString(), timedOut = false)
     }
 
     private fun summarize(records: List<TaskRecord>, taskCount: Int): List<ModelSummary> {

@@ -11,6 +11,7 @@ private const val MODEL_LLAMA = "llama.cpp"
 private const val MODEL_COPILOT = "github-copilot"
 private const val DEFAULT_LLAMA_MODEL = "llama.cpp/Qwen3.6-27B-IQ4_XS.gguf"
 private const val DEFAULT_COPILOT_MODEL = "github-copilot/gpt-5.3-codex"
+private const val DEFAULT_OPENCODE_TIMEOUT_SEC = 300L
 
 fun main(args: Array<String>) {
     if (args.contains("--help")) {
@@ -18,12 +19,41 @@ fun main(args: Array<String>) {
         return
     }
 
-    val config = try {
-        parseConfig(args)
+    val parsed = try {
+        parseArgs(args)
     } catch (e: IllegalArgumentException) {
         System.err.println("Argument error: ${e.message}")
         printUsage()
         exitProcess(2)
+    }
+
+    val config = try {
+        parseConfig(parsed)
+    } catch (e: IllegalArgumentException) {
+        System.err.println("Argument error: ${e.message}")
+        printUsage()
+        exitProcess(2)
+    }
+
+    if (parsed.hasFlag("--ping-models")) {
+        val pingMessage = parsed.value("--ping-message") ?: DEFAULT_PING_MESSAGE
+        val results = ModelConnectivityRunner(config, pingMessage).run()
+
+        var hasFailure = false
+        for (result in results) {
+            if (result.ok) {
+                println("OK ${result.model} (${result.modelId}) latency_ms=${result.latencyMs}")
+            } else {
+                hasFailure = true
+                println("NG ${result.model} (${result.modelId}) latency_ms=${result.latencyMs} error=${result.errorMessage}")
+            }
+        }
+
+        if (hasFailure) {
+            exitProcess(1)
+        }
+        println("Model connectivity check completed.")
+        return
     }
 
     val output = BenchmarkRunner(config).run()
@@ -38,8 +68,7 @@ fun main(args: Array<String>) {
     }
 }
 
-private fun parseConfig(args: Array<String>): BenchmarkConfig {
-    val parsed = parseArgs(args)
+private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
     val problemCount = parsed.value("--count")?.toInt() ?: 10
     val seed = parsed.value("--seed")?.toLong() ?: 42L
     val outputDir = Path(parsed.value("--output-dir") ?: "results")
@@ -61,7 +90,7 @@ private fun parseConfig(args: Array<String>): BenchmarkConfig {
         opencodeBin = parsed.value("--opencode-bin") ?: "opencode",
         kotlincBin = parsed.value("--kotlinc-bin") ?: "kotlinc",
         javaBin = parsed.value("--java-bin") ?: "java",
-        opencodeTimeoutSec = parsed.value("--opencode-timeout-sec")?.toLong() ?: 120L,
+        opencodeTimeoutSec = parsed.value("--opencode-timeout-sec")?.toLong() ?: DEFAULT_OPENCODE_TIMEOUT_SEC,
         compileTimeoutSec = parsed.value("--compile-timeout-sec")?.toLong() ?: 45L,
         executeTimeoutSec = parsed.value("--execute-timeout-sec")?.toLong() ?: 20L,
         copilotMaxCalls = 10,
@@ -119,7 +148,9 @@ private fun printUsage() {
           --copilot-model NAME       copilot model ID (default: $DEFAULT_COPILOT_MODEL)
           --kotlinc-bin PATH         kotlinc executable (default: kotlinc)
           --java-bin PATH            java executable (default: java)
-          --opencode-timeout-sec N   Timeout for each model call (default: 120)
+          --opencode-timeout-sec N   Timeout for each model call (default: $DEFAULT_OPENCODE_TIMEOUT_SEC)
+          --ping-models              Check model connectivity only (no dataset, no compile/test)
+          --ping-message TEXT        Message used by --ping-models (default: "$DEFAULT_PING_MESSAGE")
           --compile-timeout-sec N    Timeout for each compile (default: 45)
           --execute-timeout-sec N    Timeout for each test execution (default: 20)
           --help                     Show this help
@@ -145,7 +176,7 @@ private fun parseArgs(args: Array<String>): ParsedArgs {
             throw IllegalArgumentException("Unexpected positional argument: $arg")
         }
 
-        if (arg == "--refresh-dataset") {
+        if (arg == "--refresh-dataset" || arg == "--ping-models") {
             flags.add(arg)
             i += 1
             continue
