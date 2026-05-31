@@ -224,7 +224,7 @@ class BenchmarkRunner(
         require(config.opencodeTimeoutSec > 0) { "--opencode-timeout-sec must be > 0" }
         require(config.compileTimeoutSec > 0) { "--compile-timeout-sec must be > 0" }
         require(config.executeTimeoutSec > 0) { "--execute-timeout-sec must be > 0" }
-        val hasCopilot = config.models.any { it.name == "github-copilot" }
+        val hasCopilot = config.models.any { it.modelId.startsWith("github-copilot/") }
         if (hasCopilot && config.problemCount > config.copilotMaxCalls) {
             throw IllegalArgumentException(
                 "Problem count ${config.problemCount} exceeds copilot max calls ${config.copilotMaxCalls}"

@@ -1,17 +1,15 @@
 package bench
 
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.Path
 import kotlin.system.exitProcess
 
 private const val DEFAULT_DATASET_URL =
     "https://raw.githubusercontent.com/structuredllm/syncode/main/syncode/evaluation/mxeval/data/multilingual_humaneval/HumanEval_kotlin_v1.1.jsonl"
 
-private const val MODEL_LLAMA = "llama.cpp"
-private const val MODEL_COPILOT = "github-copilot"
-private const val DEFAULT_LLAMA_MODEL = "llama.cpp/Qwen3.6-27B-IQ4_XS.gguf"
-private const val DEFAULT_COPILOT_MODEL = "github-copilot/gpt-5.3-codex"
 private const val DEFAULT_OPENCODE_TIMEOUT_SEC = 300L
+private const val OPENCODE_MODELS_TIMEOUT_SEC = 30L
 
 /**
  * ベンチマーク CLI のエントリーポイント。
@@ -28,7 +26,7 @@ fun main(args: Array<String>) {
     val parsed = try {
         parseArgs(args)
     } catch (e: IllegalArgumentException) {
-        System.err.println("Argument error: ${e.message}")
+        println("Argument error: ${e.message}")
         printUsage()
         exitProcess(2)
     }
@@ -36,7 +34,7 @@ fun main(args: Array<String>) {
     val config = try {
         parseConfig(parsed)
     } catch (e: IllegalArgumentException) {
-        System.err.println("Argument error: ${e.message}")
+        println("Argument error: ${e.message}")
         printUsage()
         exitProcess(2)
     }
@@ -81,16 +79,17 @@ fun main(args: Array<String>) {
  * @return 実行時に利用するベンチマーク設定。
  */
 private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
+    if (parsed.value("--llama-model") != null || parsed.value("--copilot-model") != null) {
+        throw IllegalArgumentException("--llama-model/--copilot-model are removed. Specify full provider/model IDs via --models")
+    }
+
     val problemCount = parsed.value("--count")?.toInt() ?: 10
     val seed = parsed.value("--seed")?.toLong() ?: 42L
     val outputDir = Path(parsed.value("--output-dir") ?: "results")
     val datasetCache = Path(parsed.value("--dataset-cache") ?: ".cache/datasets/HumanEval_kotlin_v1.1.jsonl")
     val refreshDataset = parsed.hasFlag("--refresh-dataset")
-    val allModels = listOf(
-        ModelConfig(name = MODEL_LLAMA, modelId = parsed.value("--llama-model") ?: DEFAULT_LLAMA_MODEL),
-        ModelConfig(name = MODEL_COPILOT, modelId = parsed.value("--copilot-model") ?: DEFAULT_COPILOT_MODEL)
-    )
-    val selectedModels = selectModels(allModels, parsed.value("--models"))
+    val opencodeBin = parsed.value("--opencode-bin") ?: "opencode"
+    val selectedModels = resolveSelectedModels(parsed.value("--models"), opencodeBin)
 
     return BenchmarkConfig(
         seed = seed,
@@ -99,7 +98,7 @@ private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
         datasetCachePath = datasetCache,
         refreshDataset = refreshDataset,
         outputDir = outputDir,
-        opencodeBin = parsed.value("--opencode-bin") ?: "opencode",
+        opencodeBin = opencodeBin,
         kotlincBin = parsed.value("--kotlinc-bin") ?: "kotlinc",
         javaBin = parsed.value("--java-bin") ?: "java",
         opencodeTimeoutSec = parsed.value("--opencode-timeout-sec")?.toLong() ?: DEFAULT_OPENCODE_TIMEOUT_SEC,
@@ -111,42 +110,100 @@ private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
 }
 
 /**
- * `--models` の指定値から実行対象モデルを選択する。
+ * `--models` に指定された model ID 一覧を解決・検証する。
  *
- * @param allModels 利用可能な全モデル設定。
- * @param selectedRaw `--models` で指定された生文字列。
+ * @param selectedRaw `--models` の生文字列。
+ * @param opencodeBin `opencode` 実行ファイルのパス。
+ * @param commandRunner 外部コマンド実行関数。
  * @return 実行対象のモデル設定リスト。
  */
-private fun selectModels(allModels: List<ModelConfig>, selectedRaw: String?): List<ModelConfig> {
-    if (selectedRaw.isNullOrBlank()) {
-        return allModels
+internal fun resolveSelectedModels(
+    selectedRaw: String?,
+    opencodeBin: String,
+    commandRunner: (List<String>, Duration, Path?) -> CommandResult = ::runCommand
+): List<ModelConfig> {
+    val requestedModelIds = parseRequestedModelIds(selectedRaw)
+    val availableModelIds = fetchAvailableModelIds(opencodeBin, commandRunner)
+
+    val unknownModelIds = requestedModelIds.filterNot { availableModelIds.contains(it) }
+    if (unknownModelIds.isNotEmpty()) {
+        throw IllegalArgumentException(
+            "Unknown model(s): ${unknownModelIds.joinToString(", ")}. " +
+                "Run `$opencodeBin models` and choose from the returned provider/model IDs."
+        )
     }
 
-    val known = mapOf(
-        MODEL_LLAMA to MODEL_LLAMA,
-        "llama" to MODEL_LLAMA,
-        MODEL_COPILOT to MODEL_COPILOT,
-        "copilot" to MODEL_COPILOT
-    )
-    val selectedNames = linkedSetOf<String>()
+    return requestedModelIds.map { modelId ->
+        ModelConfig(name = modelId, modelId = modelId)
+    }
+}
+
+/**
+ * `--models` 引数を provider/model 形式の model ID 一覧へ変換する。
+ *
+ * @param selectedRaw `--models` の生文字列。
+ * @return 入力順を維持した model ID 一覧（重複除去済み）。
+ */
+internal fun parseRequestedModelIds(selectedRaw: String?): List<String> {
+    if (selectedRaw.isNullOrBlank()) {
+        throw IllegalArgumentException("--models is required. Specify provider/model IDs (comma-separated).")
+    }
+
+    val selectedModelIds = linkedSetOf<String>()
     for (token in selectedRaw.split(",")) {
-        val normalized = token.trim().lowercase()
-        if (normalized.isBlank()) {
+        val modelId = token.trim()
+        if (modelId.isBlank()) {
             continue
         }
-        val canonical = known[normalized]
-            ?: throw IllegalArgumentException("Unknown model '$token'. Use llama.cpp or github-copilot.")
-        selectedNames.add(canonical)
-    }
-    if (selectedNames.isEmpty()) {
-        throw IllegalArgumentException("No model selected. Use --models llama.cpp,github-copilot")
+        if (!modelId.contains("/")) {
+            throw IllegalArgumentException("Invalid model '$modelId'. Use provider/model format.")
+        }
+        selectedModelIds.add(modelId)
     }
 
-    val modelByName = allModels.associateBy { it.name }
-    return selectedNames.map { selectedName ->
-        modelByName[selectedName]
-            ?: throw IllegalArgumentException("Model '$selectedName' is not configured.")
+    if (selectedModelIds.isEmpty()) {
+        throw IllegalArgumentException("--models is required. Specify at least one provider/model ID.")
     }
+    return selectedModelIds.toList()
+}
+
+/**
+ * `opencode models` を実行して利用可能な model ID 一覧を取得する。
+ *
+ * @param opencodeBin `opencode` 実行ファイルのパス。
+ * @param commandRunner 外部コマンド実行関数。
+ * @return 利用可能な model ID 集合。
+ */
+internal fun fetchAvailableModelIds(
+    opencodeBin: String,
+    commandRunner: (List<String>, Duration, Path?) -> CommandResult = ::runCommand
+): Set<String> {
+    val result = try {
+        commandRunner(
+            listOf(opencodeBin, "models"),
+            Duration.ofSeconds(OPENCODE_MODELS_TIMEOUT_SEC),
+            null
+        )
+    } catch (e: Exception) {
+        throw IllegalArgumentException("Failed to run `$opencodeBin models`: ${e.message}")
+    }
+
+    if (result.timedOut) {
+        throw IllegalArgumentException("`$opencodeBin models` timed out after ${OPENCODE_MODELS_TIMEOUT_SEC}s")
+    }
+    if (result.exitCode != 0) {
+        throw IllegalArgumentException("`$opencodeBin models` failed with exit code ${result.exitCode}")
+    }
+
+    val models = result.output.lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .toCollection(linkedSetOf())
+
+    if (models.isEmpty()) {
+        throw IllegalArgumentException("`$opencodeBin models` returned no models")
+    }
+    return models
 }
 
 /**
@@ -157,7 +214,7 @@ private fun selectModels(allModels: List<ModelConfig>, selectedRaw: String?): Li
 private fun printUsage() {
     println(
         """
-        Usage: ./gradlew :app:run --args="--count 10 --seed 42"
+        Usage: ./gradlew :app:run --args="--count 10 --seed 42 --models provider/model"
 
         Options:
           --count N                  Number of sampled problems (default: 10)
@@ -167,9 +224,7 @@ private fun printUsage() {
           --refresh-dataset          Re-download dataset even if cache exists
           --output-dir PATH          Output directory for JSON/CSV (default: results)
           --opencode-bin PATH        opencode executable (default: opencode)
-          --models LIST              Comma-separated models to run: llama.cpp,github-copilot (default: both)
-          --llama-model NAME         llama model ID (default: $DEFAULT_LLAMA_MODEL)
-          --copilot-model NAME       copilot model ID (default: $DEFAULT_COPILOT_MODEL)
+          --models LIST              Comma-separated provider/model IDs to run (required; validated by `opencode models`)
           --kotlinc-bin PATH         kotlinc executable (default: kotlinc)
           --java-bin PATH            java executable (default: java)
           --opencode-timeout-sec N   Timeout for each model call (default: $DEFAULT_OPENCODE_TIMEOUT_SEC)

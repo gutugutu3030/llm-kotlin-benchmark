@@ -1,12 +1,12 @@
 # Kotlin HumanEval Local Benchmark (opencode)
 
-`llama.cpp` と `github-copilot` を `opencode` 経由で同条件評価するためのローカルベンチです。
+`opencode` で利用可能な任意の `provider/model` を同条件評価するためのローカルベンチです。
 
 ## 仕様（今回の合意条件）
 
 - Kotlin HumanEval を取得して使用（デフォルト取得元は HumanEval-X 系 Kotlin JSONL）
 - 固定シードで 10 問をサンプリング
-- `llama.cpp` と `github-copilot` を同じ 10 問で評価
+- 指定した `provider/model` を同じ問題セットで評価
 - 各問題は 1 回生成のみ（再生成なし）
 - 指標は `pass@1` と E2E 時間（生成 + コード抽出 + テスト実行）
 - 結果は JSON / CSV の両方を出力
@@ -20,17 +20,14 @@
 ## 実行
 
 ```bash
-./gradlew :app:run --args="--count 10 --seed 42"
+./gradlew :app:run --args="--count 10 --seed 42 --models github-copilot/gpt-5.3-codex"
 ```
 
 主なオプション:
 
 ```bash
---models llama.cpp
---models github-copilot
---models llama.cpp,github-copilot
---llama-model llama.cpp/Qwen3.6-27B-IQ4_XS.gguf
---copilot-model github-copilot/gpt-5.3-codex
+--models github-copilot/gpt-5.3-codex
+--models llama.cpp/Qwen3.6-27B-IQ4_XS.gguf,github-copilot/gpt-5.3-codex
 --opencode-timeout-sec 300
 --output-dir results
 --refresh-dataset
@@ -38,17 +35,18 @@
 
 ## モデル選択（`--models`）
 
-`--models` で実行対象を指定できます。未指定時は **両方**（`llama.cpp,github-copilot`）を実行します。
+`--models` は **必須** です。`provider/model` をカンマ区切りで指定します。  
+起動時に毎回 `opencode models` を実行して一覧を取得し、存在しない model を指定した場合はエラーで終了します。
 
 ```bash
-# llama.cpp のみ
-./gradlew :app:run --args="--count 10 --seed 42 --models llama.cpp"
+# 1モデル
+./gradlew :app:run --args="--count 10 --seed 42 --models github-copilot/gpt-5.3-codex"
 
-# github-copilot のみ
-./gradlew :app:run --args="--count 10 --seed 42 --models github-copilot"
+# 複数モデル
+./gradlew :app:run --args="--count 10 --seed 42 --models llama.cpp/Qwen3.6-27B-IQ4_XS.gguf,github-copilot/gpt-5.3-codex"
 
-# 両方（明示指定）
-./gradlew :app:run --args="--count 10 --seed 42 --models llama.cpp,github-copilot"
+# 利用可能モデル一覧の確認
+opencode models
 ```
 
 ヘルプ:
@@ -63,20 +61,17 @@
 HumanEval の取得・コンパイル・実行は行いません。
 
 ```bash
-# デフォルト（両モデル）
-./gradlew :app:pingModels
-
-# モデル指定（片方だけ）
-./gradlew :app:pingModels -Pmodels=github-copilot
+# モデル指定（必須）
+./gradlew :app:pingModels -Pmodels=github-copilot/gpt-5.3-codex
 
 # プロンプト指定
-./gradlew :app:pingModels -PpingMessage="Hello"
+./gradlew :app:pingModels -Pmodels=github-copilot/gpt-5.3-codex -PpingMessage="Hello"
 
 # timeout 指定（秒）
-./gradlew :app:pingModels -PopencodeTimeoutSec=120
+./gradlew :app:pingModels -Pmodels=github-copilot/gpt-5.3-codex -PopencodeTimeoutSec=120
 
 # opencode バイナリ指定
-./gradlew :app:pingModels -PopencodeBin=/path/to/opencode
+./gradlew :app:pingModels -Pmodels=github-copilot/gpt-5.3-codex -PopencodeBin=/path/to/opencode
 ```
 
 `pingModels` のデフォルト timeout は 60 秒です。
@@ -84,7 +79,7 @@ HumanEval の取得・コンパイル・実行は行いません。
 CLI から直接実行する場合:
 
 ```bash
-./gradlew :app:run --args="--ping-models --models github-copilot --ping-message Hello"
+./gradlew :app:run --args="--ping-models --models github-copilot/gpt-5.3-codex --ping-message Hello"
 ```
 
 ## 出力

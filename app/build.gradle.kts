@@ -51,13 +51,15 @@ tasks.named<JavaExec>("run") {
 
 tasks.register<JavaExec>("pingModels") {
     group = "verification"
-    description = "Check connectivity to configured models with a short prompt via opencode."
+    description = "Check connectivity to specified provider/model IDs via opencode."
     mainClass.set(application.mainClass)
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = rootProject.projectDir
 
     val taskArgs = mutableListOf("--ping-models")
-    providers.gradleProperty("models").orNull?.let { taskArgs += listOf("--models", it) }
+    val models = providers.gradleProperty("models").orNull
+        ?: throw org.gradle.api.GradleException("pingModels requires -Pmodels=provider/model[,provider/model]")
+    taskArgs += listOf("--models", models)
     providers.gradleProperty("pingMessage").orNull?.let { taskArgs += listOf("--ping-message", it) }
     val timeoutSec = providers.gradleProperty("opencodeTimeoutSec").orNull ?: "60"
     taskArgs += listOf("--opencode-timeout-sec", timeoutSec)
