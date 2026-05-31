@@ -9,10 +9,18 @@ import java.time.Duration
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
+/**
+ * `runCommand` のタイムアウト制御と入出力制御を検証するテスト。
+ */
 class CommandRunnerTest {
     @field:TempDir
     lateinit var tempDir: Path
 
+    /**
+     * タイムアウト時に出力読取スレッドが非デーモンとして残存しないことを検証する。
+     *
+     * @return テストはアサーション成功時に完了する。
+     */
     @Test
     fun timeoutDoesNotLeaveNonDaemonReaderThread() {
         val script = tempDir.resolve("hang-with-child.sh")
@@ -40,6 +48,11 @@ class CommandRunnerTest {
         assertFalse(hasNonDaemonReaderThread)
     }
 
+    /**
+     * 子プロセス標準入力を閉じることで EOF 待ちプロセスが終了できることを検証する。
+     *
+     * @return テストはアサーション成功時に完了する。
+     */
     @Test
     fun closesChildStdinSoProcessCanFinish() {
         val outputFile = tempDir.resolve("stdin-close-result.txt")

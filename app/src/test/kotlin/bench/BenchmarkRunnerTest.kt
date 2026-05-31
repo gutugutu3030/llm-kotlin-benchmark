@@ -10,12 +10,20 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
+/**
+ * `BenchmarkRunner` の主要挙動を検証するテスト。
+ */
 class BenchmarkRunnerTest {
     @field:TempDir
     lateinit var tempDir: Path
 
     private val mapper = jacksonObjectMapper()
 
+    /**
+     * 複数行プロンプトが 1 つの引数として `opencode` に渡されることを検証する。
+     *
+     * @return テストはアサーション成功時に完了する。
+     */
     @Test
     fun passesMultilinePromptAsSingleMessageArgument() {
         val capturedPromptPath = tempDir.resolve("captured-prompt.txt")
@@ -75,10 +83,17 @@ class BenchmarkRunnerTest {
         val capturedPrompt = capturedPromptPath.readText()
         assertTrue(capturedPrompt.contains("Complete the Kotlin function for the following task."))
         assertTrue(capturedPrompt.contains("Task:"))
+        assertTrue(capturedPrompt.contains("Return only the full function definition."))
+        assertTrue(capturedPrompt.contains("Do not call tools or read/write files."))
         assertTrue(capturedPrompt.contains(task.prompt.trim()))
         assertTrue(capturedPrompt.contains('\n'))
     }
 
+    /**
+     * モデル呼び出しがタイムアウトした場合にエラーメッセージが記録されることを検証する。
+     *
+     * @return テストはアサーション成功時に完了する。
+     */
     @Test
     fun marksTimedOutModelInvocation() {
         val fakeOpencode = tempDir.resolve("slow-opencode.sh")

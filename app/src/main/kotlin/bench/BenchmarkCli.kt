@@ -13,6 +13,12 @@ private const val DEFAULT_LLAMA_MODEL = "llama.cpp/Qwen3.6-27B-IQ4_XS.gguf"
 private const val DEFAULT_COPILOT_MODEL = "github-copilot/gpt-5.3-codex"
 private const val DEFAULT_OPENCODE_TIMEOUT_SEC = 300L
 
+/**
+ * ベンチマーク CLI のエントリーポイント。
+ *
+ * @param args コマンドライン引数。
+ * @return 戻り値は使用しない（`Unit`）。
+ */
 fun main(args: Array<String>) {
     if (args.contains("--help")) {
         printUsage()
@@ -68,6 +74,12 @@ fun main(args: Array<String>) {
     }
 }
 
+/**
+ * 解析済み引数を `BenchmarkConfig` に変換する。
+ *
+ * @param parsed 解析済みコマンドライン引数。
+ * @return 実行時に利用するベンチマーク設定。
+ */
 private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
     val problemCount = parsed.value("--count")?.toInt() ?: 10
     val seed = parsed.value("--seed")?.toLong() ?: 42L
@@ -98,6 +110,13 @@ private fun parseConfig(parsed: ParsedArgs): BenchmarkConfig {
     )
 }
 
+/**
+ * `--models` の指定値から実行対象モデルを選択する。
+ *
+ * @param allModels 利用可能な全モデル設定。
+ * @param selectedRaw `--models` で指定された生文字列。
+ * @return 実行対象のモデル設定リスト。
+ */
 private fun selectModels(allModels: List<ModelConfig>, selectedRaw: String?): List<ModelConfig> {
     if (selectedRaw.isNullOrBlank()) {
         return allModels
@@ -130,6 +149,11 @@ private fun selectModels(allModels: List<ModelConfig>, selectedRaw: String?): Li
     }
 }
 
+/**
+ * CLI の使用方法とオプションを標準出力に表示する。
+ *
+ * @return 戻り値は使用しない（`Unit`）。
+ */
 private fun printUsage() {
     println(
         """
@@ -158,14 +182,39 @@ private fun printUsage() {
     )
 }
 
+/**
+ * コマンドライン引数の解析結果を保持する。
+ *
+ * @property values 値を伴うオプションのマップ。
+ * @property flags 真偽フラグとして扱うオプションの集合。
+ */
 private data class ParsedArgs(
     val values: Map<String, String>,
     val flags: Set<String>
 ) {
+    /**
+     * 指定キーのオプション値を取得する。
+     *
+     * @param key 取得対象のオプションキー。
+     * @return キーに対応する値。存在しない場合は `null`。
+     */
     fun value(key: String): String? = values[key]
+
+    /**
+     * 指定キーのフラグ有無を判定する。
+     *
+     * @param key 判定対象のフラグキー。
+     * @return フラグが存在する場合は `true`。
+     */
     fun hasFlag(key: String): Boolean = flags.contains(key)
 }
 
+/**
+ * コマンドライン引数配列を値付きオプションとフラグに分解する。
+ *
+ * @param args コマンドライン引数配列。
+ * @return 解析済み引数オブジェクト。
+ */
 private fun parseArgs(args: Array<String>): ParsedArgs {
     val values = linkedMapOf<String, String>()
     val flags = linkedSetOf<String>()
