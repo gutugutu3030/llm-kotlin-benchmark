@@ -56,13 +56,15 @@ tasks.register<JavaExec>("pingModels") {
     classpath = sourceSets["main"].runtimeClasspath
     workingDir = rootProject.projectDir
 
-    val taskArgs = mutableListOf("--ping-models")
-    val models = providers.gradleProperty("models").orNull
-        ?: throw org.gradle.api.GradleException("pingModels requires -Pmodels=provider/model[,provider/model]")
-    taskArgs += listOf("--models", models)
-    providers.gradleProperty("pingMessage").orNull?.let { taskArgs += listOf("--ping-message", it) }
-    val timeoutSec = providers.gradleProperty("opencodeTimeoutSec").orNull ?: "60"
-    taskArgs += listOf("--opencode-timeout-sec", timeoutSec)
-    providers.gradleProperty("opencodeBin").orNull?.let { taskArgs += listOf("--opencode-bin", it) }
-    args(taskArgs)
+    doFirst {
+        val taskArgs = mutableListOf("--ping-models")
+        val models = providers.gradleProperty("models").orNull
+            ?: throw org.gradle.api.GradleException("pingModels requires -Pmodels=provider/model[,provider/model]")
+        taskArgs += listOf("--models", models)
+        providers.gradleProperty("pingMessage").orNull?.let { taskArgs += listOf("--ping-message", it) }
+        val timeoutSec = providers.gradleProperty("opencodeTimeoutSec").orNull ?: "60"
+        taskArgs += listOf("--opencode-timeout-sec", timeoutSec)
+        providers.gradleProperty("opencodeBin").orNull?.let { taskArgs += listOf("--opencode-bin", it) }
+        args(taskArgs)
+    }
 }
